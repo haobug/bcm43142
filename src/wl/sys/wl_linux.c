@@ -235,7 +235,7 @@ module_param(nompc, int, 0);
 #define to_str(s) #s
 #define quote_str(s) to_str(s)
 
-#define BRCM_WLAN_IFNAME eth%d
+#define BRCM_WLAN_IFNAME wlan%d
 
 static char intf_name[IFNAMSIZ] = quote_str(BRCM_WLAN_IFNAME);
 
@@ -3236,7 +3236,12 @@ void
 wl_tkip_printstats(wl_info_t *wl, bool group_key)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 14)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+	struct seq_file sfile;
+	struct seq_file *debug_buf = &sfile;	
+#else
 	char debug_buf[512];
+#endif
 	int idx;
 	if (wl->tkipmodops) {
 		if (group_key) {
@@ -3249,7 +3254,11 @@ wl_tkip_printstats(wl_info_t *wl, bool group_key)
 			wl->tkipmodops->print_stats(debug_buf, wl->tkip_ucast_data);
 		else
 			return;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+		printk("%s: TKIP stats from module: %s\n", debug_buf->buf, group_key?"Bcast":"Ucast");
+#else
 		printk("%s: TKIP stats from module: %s\n", debug_buf, group_key?"Bcast":"Ucast");
+#endif
 	}
 #endif 
 }
@@ -3408,17 +3417,24 @@ wl_linux_watchdog(void *ctx)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 static int
 wl_proc_read(char *buffer, char **start, off_t offset, int length, int *eof, void *data)
+#else
+static ssize_t 
+wl_proc_read (struct file *filp, char __user *buffer, size_t length, loff_t *data)
+#endif
 {
 	wl_info_t * wl = (wl_info_t *)data;
 	int bcmerror, to_user;
 	int len;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	if (offset > 0) {
 		*eof = 1;
 		return 0;
 	}
+#endif
 
 	if (!length) {
 		WL_ERROR(("%s: Not enough return buf space\n", __FUNCTION__));
@@ -3431,8 +3447,13 @@ wl_proc_read(char *buffer, char **start, off_t offset, int length, int *eof, voi
 	return len;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 static int
 wl_proc_write(struct file *filp, const char *buff, unsigned long length, void *data)
+#else
+static ssize_t 
+wl_proc_write (struct file *filp, const char __user *buff, size_t length, loff_t *data)
+#endif
 {
 	wl_info_t * wl = (wl_info_t *)data;
 	int from_user = 0;
@@ -3462,19 +3483,34 @@ wl_proc_write(struct file *filp, const char *buff, unsigned long length, void *d
 	return length;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+static const struct file_operations wl_fops = {
+     .owner	= THIS_MODULE,
+     .read	= wl_proc_read,
+     .write	= wl_proc_write,
+};
+#endif
+
 static int
 wl_reg_proc_entry(wl_info_t *wl)
 {
 	char tmp[32];
 	sprintf(tmp, "%s%d", HYBRID_PROC, wl->pub->unit);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	if ((wl->proc_entry = create_proc_entry(tmp, 0644, NULL)) == NULL) {
 		WL_ERROR(("%s: create_proc_entry %s failed\n", __FUNCTION__, tmp));
+#else
+	if ((wl->proc_entry = proc_create(tmp, 0644, NULL, &wl_fops)) == NULL) {
+		WL_ERROR(("%s: proc_create %s failed\n", __FUNCTION__, tmp));
+#endif
 		ASSERT(0);
 		return -1;
 	}
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	wl->proc_entry->read_proc = wl_proc_read;
 	wl->proc_entry->write_proc = wl_proc_write;
 	wl->proc_entry->data = wl;
+#endif
 	return 0;
 }
 #ifdef WLOFFLD
@@ -3484,3 +3520,4 @@ uint32 wl_pcie_bar1(struct wl_info *wl, uchar** addr)
 	return (wl->bar1_size);
 }
 #endif
+MODULE_LICENSE("Proprietary");

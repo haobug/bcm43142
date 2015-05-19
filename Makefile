@@ -139,4 +139,9 @@ clean:
 	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd` clean
 
 install:
+	mkdir -p $(MDEST_DIR)
 	install -D -m 755 wl.ko $(MDEST_DIR)
+
+uninstall:
+	rm $(MDEST_DIR)/wl.ko
+
